@@ -2,11 +2,10 @@ package com.tencentcs.iotvideodemo.videoplayer
 
 import android.graphics.Color
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
-import com.tencentcs.iotvideo.iotvideoplayer.IRecordListener
-import com.tencentcs.iotvideo.iotvideoplayer.IUserDataListener
 import com.tencentcs.iotvideo.iotvideoplayer.PlayerStateEnum
 import com.tencentcs.iotvideo.iotvideoplayer.player.PlaybackPlayer
 import com.tencentcs.iotvideo.messagemgr.DataMessage
@@ -16,7 +15,6 @@ import com.tencentcs.iotvideo.messagemgr.PlaybackMessage
 import com.tencentcs.iotvideo.utils.LogUtils
 import com.tencentcs.iotvideodemo.R
 import com.tencentcs.iotvideodemo.kt.base.BaseActivity
-import com.tencentcs.iotvideodemo.kt.base.BasePresenter
 import com.tencentcs.iotvideodemo.kt.function.click
 import com.tencentcs.iotvideodemo.kt.ui.ListItemDecoration
 import com.tencentcs.iotvideodemo.kt.ui.adapter.ItemHolder
@@ -31,7 +29,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-class PlaybackPlayerActivity : BaseActivity<BasePresenter>() {
+class PlaybackPlayerActivity : BaseActivity() {
     private val mSimpleDateFormat = SimpleDateFormat("yyyy_MM_dd_HH_mm_ss")
 
     private lateinit var mAdapter: SimpleAdapter<PlaybackMessage.PlaybackNode>
@@ -41,6 +39,10 @@ class PlaybackPlayerActivity : BaseActivity<BasePresenter>() {
     private var mDeviceId = ""
 
     private var mPlaybackPlayer = PlaybackPlayer()
+
+    private var mCurrentPageIndex = 0
+
+    private var mPageCount = -1
 
     override fun getResId() = R.layout.activity_playback_player
 
@@ -75,105 +77,29 @@ class PlaybackPlayerActivity : BaseActivity<BasePresenter>() {
 
         recyclerView.adapter = mAdapter
 
-        tv_get_playback.click {
-            PlaybackPlayer.getPlaybackList(mDeviceId, 0, System.currentTimeMillis(),
-                    0, 50, object : IResultListener<PlaybackMessage> {
-                override fun onStart() {
-                    LogUtils.d(TAG, "请求中...")
-                    playback_status.text = "正在获取回放列表..."
-                }
+        tv_get_playback_previous.click {
+            getPlaybackListPrevious()
+        }
 
-                override fun onSuccess(msg: PlaybackMessage?) {
-                    val logStr = "获取成功 : 当前页 ${msg?.currentPage}, 总页数 ${msg?.pageCount}"
-                    LogUtils.d(TAG, logStr)
-                    LogUtils.d(TAG, "获取成功 ${msg.toString()}")
-                    runOnUiThread {
-                        playback_status.text = "获取回放列表成功"
-                        data.clear()
-                        msg?.playbackList?.let {
-                            data.addAll(it)
-                            mAdapter.notifyDataSetChanged()
-                        }
-                        Snackbar.make(tv_get_playback, logStr, Snackbar.LENGTH_LONG).show()
-                    }
-                }
-
-                override fun onError(errorCode: Int, errorMsg: String?) {
-                    val logStr = "getPlaybackList error code $errorCode,  $errorMsg"
-                    runOnUiThread {
-                        playback_status.text = "获取回放列表失败 $errorCode, $errorMsg"
-                        LogUtils.d(TAG, logStr)
-                        Snackbar.make(tv_get_playback, logStr, Snackbar.LENGTH_LONG).show()
-                    }
-                }
-            })
-
+        tv_get_playback_next.click {
+            getPlaybackListNext()
         }
 
         tv_start_record.click {
-            val charset = Charsets.UTF_8
-            val byteArray = "record_start".toByteArray(charset)
-            MessageMgr.getInstance().sendDataToDeviceWithoutResponse(mDeviceId, byteArray, object : IResultListener<DataMessage>{
-                override fun onStart() {
-                }
-
-                override fun onSuccess(msg: DataMessage?) {
-                    LogUtils.d(TAG, "start_record success")
-                    Snackbar.make(tv_start_record, "打开录像成功", Snackbar.LENGTH_LONG).show()
-                }
-
-                override fun onError(errorCode: Int, errorMsg: String?) {
-                    LogUtils.d(TAG, "start_record error code $errorCode,  $errorMsg")
-                    Snackbar.make(tv_start_record, "start_record error code $errorCode,  $errorMsg", Snackbar.LENGTH_LONG).show()
-                }
-
-            })
+            deviceRecord(true)
         }
 
         tv_stop_record.click {
-            val charset = Charsets.UTF_8
-            val byteArray = "record_stop".toByteArray(charset)
-            MessageMgr.getInstance().sendDataToDeviceWithoutResponse(mDeviceId, byteArray, object : IResultListener<DataMessage>{
-                override fun onStart() {
-                }
-
-                override fun onSuccess(msg: DataMessage?) {
-                    LogUtils.d(TAG, "stop_record success")
-                    Snackbar.make(tv_start_record, "关闭录像成功", Snackbar.LENGTH_LONG).show()
-                }
-
-                override fun onError(errorCode: Int, errorMsg: String?) {
-                    LogUtils.d(TAG, "stop_record error code $errorCode,  $errorMsg")
-                    Snackbar.make(tv_start_record, "start_record error code $errorCode,  $errorMsg", Snackbar.LENGTH_LONG).show()
-                }
-            })
+            deviceRecord(false)
         }
 
         btn_record.click {
-            if (!StorageManager.isVideoPathAvailable()) {
-                Toast.makeText(this, "storage is not available", Toast.LENGTH_LONG).show()
-                return@click
-            }
-            if (mPlaybackPlayer.isRecording()) {
-                btn_record.setText("开始录像")
-                mPlaybackPlayer.stopRecord()
-            } else {
-                btn_record.setText("停止录像")
-                val tdate = Date()
-                val tdateStringParse = mSimpleDateFormat.format(tdate)
-                mPlaybackPlayer.startRecord(File(StorageManager.getVideoPath(), tdateStringParse + ".mp4").absolutePath,
-                        IRecordListener { code, path ->
-                            Toast.makeText(this, "code:$code path:$path", Toast.LENGTH_LONG).show()
-                            if (code != 0) {
-                                btn_record.setText("开始录像")
-                            }
-                        })
-            }
+            recordVideoFromDevice()
         }
 
         initPlaybackPlayer()
 
-        //request permission
+        getPlaybackList(tv_get_playback_previous, 0)
     }
 
     override fun onResume() {
@@ -229,6 +155,107 @@ class PlaybackPlayerActivity : BaseActivity<BasePresenter>() {
             PlayerStateEnum.STATE_STOP -> playStatus = "停止播放"
         }
         return playStatus
+    }
+
+    private fun getPlaybackList(view: View, pageIndex: Int) {
+        PlaybackPlayer.getPlaybackList(mDeviceId, 0, System.currentTimeMillis(),
+                pageIndex, 50, object : IResultListener<PlaybackMessage> {
+            override fun onStart() {
+                LogUtils.d(TAG, "请求中...")
+                playback_status.text = "正在获取回放列表..."
+            }
+
+            override fun onSuccess(msg: PlaybackMessage?) {
+                mPageCount = msg?.pageCount!!
+                val logStr = "获取成功 : 当前页 ${msg.currentPage}, 总页数 $mPageCount"
+                LogUtils.d(TAG, logStr)
+                LogUtils.d(TAG, "获取成功 ${msg.toString()}")
+                runOnUiThread {
+                    playback_status.text = "获取回放列表成功"
+                    data.clear()
+                    msg.playbackList?.let {
+                        data.addAll(it)
+                        mAdapter.notifyDataSetChanged()
+                    }
+                    Snackbar.make(view, logStr, Snackbar.LENGTH_LONG).show()
+                }
+            }
+
+            override fun onError(errorCode: Int, errorMsg: String?) {
+                val logStr = "getPlaybackList error code $errorCode,  $errorMsg"
+                runOnUiThread {
+                    playback_status.text = "获取回放列表失败 $errorCode, $errorMsg"
+                    LogUtils.d(TAG, logStr)
+                    Snackbar.make(view, logStr, Snackbar.LENGTH_LONG).show()
+                }
+            }
+        })
+    }
+
+    private fun getPlaybackListPrevious() {
+        if (mPageCount == -1) {
+            //未成功获取到回放列表，默认从第一页获取
+            getPlaybackList(tv_get_playback_previous, 0)
+            return
+        } else if (mCurrentPageIndex == 0) {
+            Snackbar.make(tv_get_playback_previous, "已是第一页", Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        getPlaybackList(tv_get_playback_previous, mCurrentPageIndex--)
+    }
+
+    private fun getPlaybackListNext() {
+        if (mPageCount == -1) {
+            //未成功获取到回放列表，默认从第一页获取
+            getPlaybackList(tv_get_playback_next, 0)
+            return
+        } else if (mCurrentPageIndex == mPageCount - 1) {
+            Snackbar.make(tv_get_playback_next, "已是最后页", Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        getPlaybackList(tv_get_playback_next, mCurrentPageIndex++)
+    }
+
+    private fun deviceRecord(on: Boolean) {
+        val charset = Charsets.UTF_8
+        val byteArray = (if (on) "record_start" else "record_stop").toByteArray(charset)
+        MessageMgr.getInstance().sendDataToDeviceWithoutResponse(mDeviceId, byteArray, object : IResultListener<DataMessage> {
+            override fun onStart() {
+            }
+
+            override fun onSuccess(msg: DataMessage?) {
+                LogUtils.d(TAG, "deviceRecord $on")
+                Snackbar.make(tv_start_record, (if (on) "打开录像成功" else "关闭录像成功"), Snackbar.LENGTH_LONG).show()
+            }
+
+            override fun onError(errorCode: Int, errorMsg: String?) {
+                LogUtils.d(TAG, "deviceRecord $on error code $errorCode,  $errorMsg")
+                Snackbar.make(tv_start_record, "deviceRecord $on error code $errorCode,  $errorMsg", Snackbar.LENGTH_LONG).show()
+            }
+
+        })
+    }
+
+    private fun recordVideoFromDevice() {
+        if (!StorageManager.isVideoPathAvailable()) {
+            Toast.makeText(this, "storage is not available", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (mPlaybackPlayer.isRecording) {
+            btn_record.text = "开始录像"
+            mPlaybackPlayer.stopRecord()
+        } else {
+            btn_record.text = "停止录像"
+            val tdate = Date()
+            val tdateStringParse = mSimpleDateFormat.format(tdate)
+            mPlaybackPlayer.startRecord(File(StorageManager.getVideoPath(), "$tdateStringParse.mp4").absolutePath
+            ) { code, path ->
+                Toast.makeText(this, "code:$code path:$path", Toast.LENGTH_LONG).show()
+                if (code != 0) {
+                    btn_record.text = "开始录像"
+                }
+            }
+        }
     }
 
 }

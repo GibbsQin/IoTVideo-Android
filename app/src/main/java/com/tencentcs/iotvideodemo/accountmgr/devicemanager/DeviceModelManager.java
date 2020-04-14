@@ -7,6 +7,7 @@ import com.tencentcs.iotvideo.IoTVideoSdk;
 import com.tencentcs.iotvideo.messagemgr.IModelListener;
 import com.tencentcs.iotvideo.messagemgr.ModelMessage;
 import com.tencentcs.iotvideo.utils.LogUtils;
+import com.tencentcs.iotvideo.utils.Utils;
 import com.tencentcs.iotvideo.utils.rxjava.IResultListener;
 
 import org.json.JSONException;
@@ -33,27 +34,10 @@ public class DeviceModelManager implements IModelListener {
     }
 
     public void setDeviceModel(DeviceModel newModel) {
-        DeviceModel model = mDeviceModelMap.get(newModel.deviceId);
-        if (model == null || model.model == null || "{}".equals(model.model.toString())) {
+        if (newModel != null) {
             LogUtils.i(TAG, "setDeviceModel " + newModel.toString());
             mDeviceModelMap.put(newModel.deviceId, newModel);
         }
-    }
-
-    public boolean isOnline(String deviceId) {
-        return getIntValue(deviceId, "ProReadonly._online") == 1;
-    }
-
-    public void getLatestVersion(String deviceId, IResultListener<ModelMessage> listener) {
-        setStringValue(deviceId, "Action._otaVersion", "", listener);
-    }
-
-    public void startOTA(String deviceId, IResultListener<ModelMessage> listener) {
-        setIntValue(deviceId, "Action._otaUpgrade", 1, listener);
-    }
-
-    public int getOTAProgress(String deviceId) {
-        return getIntValue(deviceId, "ProReadonly._otaUpgrade");
     }
 
     public String getStringValue(String deviceId, String path) {
@@ -71,7 +55,10 @@ public class DeviceModelManager implements IModelListener {
             String[] pathArray = path.split("\\.");
             LogUtils.i(TAG, "getStringValue path " + Arrays.toString(pathArray));
             if (model.model.has(pathArray[0]) && model.model.getJSONObject(pathArray[0]).has(pathArray[1])) {
-                value = model.model.getJSONObject(pathArray[0]).getJSONObject(pathArray[1]).getString("stVal");
+                JSONObject targetJSONObject = model.model
+                        .getJSONObject(pathArray[0])
+                        .getJSONObject(pathArray[1]);
+                value = targetJSONObject.getString(getValueName(targetJSONObject, pathArray));
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -94,7 +81,10 @@ public class DeviceModelManager implements IModelListener {
             String[] pathArray = path.split("\\.");
             LogUtils.i(TAG, "getIntValue path " + Arrays.toString(pathArray));
             if (model.model.has(pathArray[0]) && model.model.getJSONObject(pathArray[0]).has(pathArray[1])) {
-                value = model.model.getJSONObject(pathArray[0]).getJSONObject(pathArray[1]).getInt("stVal");
+                JSONObject targetJSONObject = model.model
+                        .getJSONObject(pathArray[0])
+                        .getJSONObject(pathArray[1]);
+                value = targetJSONObject.getInt(getValueName(targetJSONObject, pathArray));
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -105,23 +95,80 @@ public class DeviceModelManager implements IModelListener {
     public void setStringValue(String deviceId, String path, String value, IResultListener<ModelMessage> listener) {
         if (!mDeviceModelMap.containsKey(deviceId)) {
             LogUtils.e(TAG, "getStringValue not contains deviceId " + deviceId);
+            listener.onError(0, "getStringValue not contains deviceId");
             return;
         }
 
-        String data = String.format("{\"ctlVal\":\"%s\",\"origin\":\"\",\"t\":0}", value);
-        LogUtils.i(TAG, "setStringValue " + path + " " + data);
-        IoTVideoSdk.getMessageMgr().writeProperty(deviceId, path, data, listener);
+        JSONObject jsonObject = getJSONObjectByPath(deviceId, path);
+        if (jsonObject == null) {
+            LogUtils.e(TAG, "setStringValue not contains json object " + path);
+            listener.onError(0, "setStringValue not contains json object");
+            return;
+        }
+        String[] pathArray = path.split("\\.");
+        try {
+            jsonObject.put(getValueName(jsonObject, pathArray), value);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        LogUtils.i(TAG, "setStringValue " + path + " " + jsonObject.toString());
+        IoTVideoSdk.getMessageMgr().writeProperty(deviceId, path, jsonObject.toString(), listener);
     }
 
     public void setIntValue(String deviceId, String path, int value, IResultListener<ModelMessage> listener) {
         if (!mDeviceModelMap.containsKey(deviceId)) {
-            LogUtils.e(TAG, "getStringValue not contains deviceId " + deviceId);
+            LogUtils.e(TAG, "setIntValue not contains deviceId " + deviceId);
+            listener.onError(0, "setIntValue not contains deviceId");
             return;
         }
+        JSONObject jsonObject = getJSONObjectByPath(deviceId, path);
+        if (jsonObject == null) {
+            LogUtils.e(TAG, "setIntValue not contains json object " + path);
+            listener.onError(0, "setIntValue not contains json object");
+            return;
+        }
+        String[] pathArray = path.split("\\.");
+        try {
+            jsonObject.put(getValueName(jsonObject, pathArray), value);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        LogUtils.i(TAG, "setIntValue " + path + " " + jsonObject.toString());
+        IoTVideoSdk.getMessageMgr().writeProperty(deviceId, path, jsonObject.toString(), listener);
+    }
 
-        String data = String.format("{\"ctlVal\":%s,\"origin\":\"\",\"t\":0}", value);
-        LogUtils.i(TAG, "setIntValue " + path + " " + data);
-        IoTVideoSdk.getMessageMgr().writeProperty(deviceId, path, data, listener);
+    public JSONObject getJSONObjectByPath(String deviceId, String path) {
+        if (!mDeviceModelMap.containsKey(deviceId)) {
+            LogUtils.e(TAG, "getJSONObjectByPath not contains deviceId " + deviceId);
+            return null;
+        }
+
+        DeviceModel model = mDeviceModelMap.get(deviceId);
+        if (model == null) {
+            return null;
+        }
+        JSONObject jsonObject = null;
+        try {
+            String[] pathArray = path.split("\\.");
+            LogUtils.i(TAG, "getJSONObjectByPath path " + Arrays.toString(pathArray));
+            if (model.model.has(pathArray[0]) && model.model.getJSONObject(pathArray[0]).has(pathArray[1])) {
+                jsonObject = model.model.getJSONObject(pathArray[0]).getJSONObject(pathArray[1]);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return jsonObject;
+    }
+
+    private String getValueName(JSONObject jsonObject, String[] pathArray) {
+        if (jsonObject.has("stVal")) {
+            return "stVal";
+        } else if (jsonObject.has("setVal")) {
+            return "setVal";
+        } else if (jsonObject.has("ctlVal")) {
+            return "ctlVal";
+        }
+        return "unknown";
     }
 
     @Override
@@ -134,7 +181,7 @@ public class DeviceModelManager implements IModelListener {
         if (model == null) {
             DeviceModel newModel = new DeviceModel(data.device, data.path, data.data);
             mDeviceModelMap.put(data.device, newModel);
-            LogUtils.i(TAG, "onNotify mDeviceModelMap = " + Arrays.toString(mDeviceModelMap.keySet().toArray()));
+            LogUtils.i(TAG, "onNotify device model = " + data.device + " " + newModel.toString());
         } else {
             model.setData(data.path, data.data);
         }
@@ -187,6 +234,7 @@ public class DeviceModelManager implements IModelListener {
         }
 
         void setData(String path, String data) {
+            LogUtils.d(TAG, "setData path " + path + " " + data);
             if (TextUtils.isEmpty(path) || TextUtils.isEmpty(data)) {
                 return;
             }
@@ -197,6 +245,7 @@ public class DeviceModelManager implements IModelListener {
                 for (int i = 0, size = pathSplits.length; i < size; i++) {
                     if (i == size - 1) {
                         tmpJSONObject.put(pathSplits[i], new JSONObject(data));
+                        LogUtils.d(TAG, "put data to json path " + path + " " + data);
                     } else {
                         if (tmpJSONObject.has(pathSplits[i])) {
                             tmpJSONObject = tmpJSONObject.getJSONObject(pathSplits[i]);
@@ -215,7 +264,7 @@ public class DeviceModelManager implements IModelListener {
         public String toString() {
             return "DeviceModel{" +
                     "deviceId='" + deviceId + '\'' +
-                    ", model=" + model +
+                    ", model=" + Utils.printJson(model.toString()) +
                     '}';
         }
     }
